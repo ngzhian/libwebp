@@ -458,6 +458,9 @@ if(WEBP_BUILD_DWEBP)
   target_link_libraries(dwebp exampleutil imagedec imageenc)
   target_include_directories(dwebp PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/src)
   install(TARGETS dwebp RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+  set_target_properties(
+    dwebp
+    PROPERTIES LINK_FLAGS "--embed-file test_webp_wasm.webp")
 endif()
 
 if(WEBP_BUILD_CWEBP)
