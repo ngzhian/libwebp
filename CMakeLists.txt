@@ -48,7 +48,7 @@ endif()
 if(WEBP_BUILD_WEBP_JS)
   set(WEBP_BUILD_ANIM_UTILS OFF)
   set(WEBP_BUILD_CWEBP OFF)
-  set(WEBP_BUILD_DWEBP OFF)
+  set(WEBP_BUILD_DWEBP ON)
   set(WEBP_BUILD_GIF2WEBP OFF)
   set(WEBP_BUILD_IMG2WEBP OFF)
   set(WEBP_BUILD_VWEBP OFF)
@@ -460,7 +460,13 @@ if(WEBP_BUILD_DWEBP)
   install(TARGETS dwebp RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
   set_target_properties(
     dwebp
-    PROPERTIES LINK_FLAGS "--embed-file test_webp_wasm.webp")
+    PROPERTIES LINK_FLAGS "--embed-file test_webp_wasm.webp --embed-file bryce.webp -s ENVIRONMENT=shell")
+  set_target_properties(
+    imagedec
+    PROPERTIES LINK_FLAGS "--embed-file test_webp_wasm.webp --embed-file bryce.webp -s ENVIRONMENT=shell")
+  set_target_properties(
+    imageenc
+    PROPERTIES LINK_FLAGS "--embed-file test_webp_wasm.webp --embed-file bryce.webp -s ENVIRONMENT=shell")
 endif()
 
 if(WEBP_BUILD_CWEBP)
