@@ -16,6 +16,7 @@
 #include "./dsp.h"
 
 #if defined(WEBP_USE_WASM)
+#include "wasm_simd128.h"
 
 typedef int32_t int32x4 __attribute__((__vector_size__(16)));
 typedef uint32_t uint32x4 __attribute__((__vector_size__(16)));
@@ -112,6 +113,10 @@ static WEBP_INLINE int32x4 _unpackhi_epi64(const int32x4 a, const int32x4 b) {
 //  #define ENABLE_NEON_BUILTIN_MULHI_INT16X8
 #endif
 
+#if defined(EMSCRIPTEN)
+// #define ENABLE_WASM_BUILTIN_MULHI_INT16X8
+#endif
+
 static WEBP_INLINE int16x8 _mulhi_int16x8(const int16x8 in, const int32x4 k) {
 #if defined(ENABLE_X86_BUILTIN_MULHI_INT16X8)
   const int16x8 k_16bit = splat_int16(k[0]);
@@ -121,6 +126,12 @@ static WEBP_INLINE int16x8 _mulhi_int16x8(const int16x8 in, const int32x4 k) {
   const int16x8 one = (int16x8){1, 1, 1, 1, 1, 1, 1, 1};
   return ((int16x8)__builtin_neon_vqdmulhq_v((int8x16)in, (int8x16)k_16bit,
                                              33)) >> one;
+#elif defined(ENABLE_WASM_BUILTIN_MULHI_INT16X8)
+  const int16x8 k_16bit = splat_int16(k[0]);
+  /* return (int16x8)__builtin_ia32_pmulhw128(in, k_16bit); */
+  const v128_t lo = wasm_i32x4_extmul_low_i16x8(in, k_16bit);
+  const v128_t hi = wasm_i32x4_extmul_high_i16x8(in, k_16bit);
+  return wasm_i16x8_shuffle(lo, hi, 1, 3, 5, 7, 9, 11, 13, 15);
 #else
   const int16x8 zero = (int16x8){0, 0, 0, 0, 0, 0, 0, 0};
   const int32x4 sixteen = (int32x4){16, 16, 16, 16};
@@ -137,32 +148,12 @@ static WEBP_INLINE int16x8 _mulhi_int16x8(const int16x8 in, const int32x4 k) {
 }
 
 static WEBP_INLINE uint8x16 int16x8_to_uint8x16_sat(const int16x8 x) {
-  const uint8x16 k00ff00ff =
-      (uint8x16){-1, 0, -1, 0, -1, 0, -1, 0, -1, 0, -1, 0, -1, 0, -1, 0};
-  const int16x8 fifteen = (int16x8){15, 15, 15, 15, 15, 15, 15, 15};
-  const int16x8 a = (uint16x8)x > (uint16x8)k00ff00ff;
-  const int16x8 b = x & ~a;
-  const int16x8 c = (x & a) >> fifteen;
-  const int16x8 d = ~c & a;
-  const int16x8 e = b | d;
-  const uint8x16 final = (uint8x16)__builtin_shufflevector(
-      (int8x16)e, (int8x16)e, 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26,
-      28, 30);
-  return final;
+  return wasm_u8x16_narrow_i16x8(x, x);
 }
 
 // int16 to int8 with saturation.
 static WEBP_INLINE int8x16 int16x8_to_int8x16_sat(const int16x8 x) {
-  const int16x8 k7f = splat_int16(0x007f);
-  const int16x8 kff80 = splat_int16(0xff80);
-  const int16x8 s1 = (x < k7f);
-  const int16x8 a = (s1 & x) | (~s1 & k7f);
-  const int16x8 s2 = (a > kff80);
-  const int16x8 a2 = (s2 & a) | (~s2 & kff80);
-  const int8x16 final = (int8x16)__builtin_shufflevector(
-      (int8x16)a2, (int8x16)a2, 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24,
-      26, 28, 30);
-  return final;
+  return wasm_i8x16_narrow_i16x8(x, x);
 }
 
 //------------------------------------------------------------------------------
@@ -413,12 +404,18 @@ static void Transform(const int16_t* in, uint8_t* dst, int do_two) {
 #define ENABLE_NEON_BUILTIN_ADDSUB_SAT
 #endif
 
+#if defined(EMSCRIPTEN)
+#define ENABLE_WASM_BUILTIN_ADDSUB_SAT
+#endif
+
 static WEBP_INLINE uint8x16 uint8x16_add_sat(const uint8x16 a,
                                              const uint8x16 b) {
 #if defined(ENABLE_X86_BUILTIN_ADDSUB_SAT)
   return (uint8x16)__builtin_ia32_paddusb128(a, b);
 #elif defined(ENABLE_NEON_BUILTIN_ADDSUB_SAT)
   return (uint8x16)__builtin_neon_vqaddq_v(a, b, 48);
+#elif defined(ENABLE_WASM_BUILTIN_ADDSUB_SAT)
+  return wasm_u8x16_add_sat(a, b);
 #else
   // Generic implementation for non-x86
   const uint8x16 zero = splat_uint8(0);
@@ -439,6 +436,8 @@ static WEBP_INLINE int8x16 int8x16_add_sat(const int8x16 a, const int8x16 b) {
   return (int8x16)__builtin_ia32_paddsb128(a, b);
 #elif defined(ENABLE_NEON_BUILTIN_ADDSUB_SAT)
   return (int8x16)__builtin_neon_vqaddq_v(a, b, 32);
+#elif defined(ENABLE_WASM_BUILTIN_ADDSUB_SAT)
+  return wasm_i8x16_add_sat(a, b);
 #else
   // Generic implementation for non-x86
   const int8x16 zero = splat_uint8(0);
@@ -461,6 +460,8 @@ static WEBP_INLINE uint8x16 uint8x16_sub_sat(const uint8x16 a,
   return (uint8x16)__builtin_ia32_psubusb128(a, b);
 #elif defined(ENABLE_NEON_BUILTIN_ADDSUB_SAT)
   return (int8x16)__builtin_neon_vqsubq_v(a, b, 48);
+#elif defined(ENABLE_WASM_BUILTIN_ADDSUB_SAT)
+  return wasm_u8x16_sub_sat(a, b);
 #else
   // Generic implementation for non-x86
   const uint8x16 zero = splat_uint8(0);
@@ -481,6 +482,8 @@ static WEBP_INLINE int8x16 int8x16_sub_sat(const int8x16 a, const int8x16 b) {
   return (int8x16)__builtin_ia32_psubsb128(a, b);
 #elif defined(ENABLE_NEON_BUILTIN_ADDSUB_SAT)
   return (int8x16)__builtin_neon_vqsubq_v(a, b, 32);
+#elif defined(ENABLE_WASM_BUILTIN_ADDSUB_SAT)
+  return wasm_i8x16_sub_sat(a, b);
 #else
   // Generic implementation for non-x86
   const int8x16 zero = splat_uint8(0);
@@ -512,9 +515,7 @@ static WEBP_INLINE int8x16 abs_diff(int8x16 p, int8x16 q) {
 // int16 to int8 with saturation.
 static WEBP_INLINE int8x16 _pack_epi16_to_epi8(const int16x8 lo,
                                                const int16x8 hi) {
-  const int8x16 sat_lo = int16x8_to_int8x16_sat(lo);
-  const int8x16 sat_hi = int16x8_to_int8x16_sat(hi);
-  return _unpacklo_epi64(sat_lo, sat_hi);
+  return wasm_i8x16_narrow_i16x8(lo, hi);
 }
 
 // Shift each byte of "x" by 3 bits while preserving by the sign bit.
@@ -678,8 +679,8 @@ static WEBP_INLINE void DoFilter4(int8x16* const p1, int8x16* const p0,
 
   // this is equivalent to signed (a + 1) >> 1 calculation
   t2 = t3 + sign_bit;
-#if 0
-  t3 = _mm_avg_epu8(t2, zero);
+#if 1
+  t3 = wasm_u8x16_avgr(t2, zero);
 #else
   // This code will be eliminated if the above avg instruction is supported.
   {
